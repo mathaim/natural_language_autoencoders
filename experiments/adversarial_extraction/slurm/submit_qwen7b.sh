@@ -16,6 +16,7 @@ mkdir -p /scratch/euh7ys/logs
 
 # ── Environment ──────────────────────────────────────────────────────────────
 export PYTHONNOUSERSITE=1   # ~/.local has broken packages that shadow the env
+export PYTHONUNBUFFERED=1   # SLURM block-buffers stdout to file; stream it live (inherited by subprocesses)
 source /home/euh7ys/miniconda3/etc/profile.d/conda.sh
 conda activate /scratch/euh7ys/envs/nla
 
