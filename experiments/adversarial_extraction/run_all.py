@@ -234,8 +234,8 @@ def run_model(
         ]
         if args.datasets:
             verbalize_cmd += ["--datasets"] + args.datasets
-        if args.verbalize_all:
-            verbalize_cmd.append("--verbalize-all")
+        if args.skip_early_positions:
+            verbalize_cmd.append("--skip-early-positions")
         if args.debug:
             verbalize_cmd.append("--debug")
 
@@ -294,8 +294,9 @@ def main() -> None:
     # Verbalize options
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--max-new-tokens", type=int, default=200)
-    ap.add_argument("--verbalize-all", action="store_true",
-                    help="verbalize positions < min_position too")
+    ap.add_argument("--skip-early-positions", action="store_true",
+                    help="null out positions < 50 instead of verbalizing them "
+                         "(default: verbalize every position)")
     ap.add_argument("--debug", action="store_true",
                     help="print CJK warning on injection failure")
 

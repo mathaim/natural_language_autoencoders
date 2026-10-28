@@ -52,9 +52,9 @@ Notes
   injection time, consistent with the datagen pipeline invariant.
 - model_output is a greedy decode of --decode-tokens tokens. It captures
   what the base model would say, independent of NLA.
-- Positions with index < --min-position are extracted but flagged with
-  min_position_warning=True in verbalizations.jsonl. Early tokens
-  (low left-context) verbalize as noise.
+- All positions are verbalized by default. Positions with index < 50 are
+  flagged min_position_warning=True (the datagen left-context floor) so you
+  can filter downstream; pass --skip-early-positions to null them instead.
 - The injection marker smoke test: if verbalizations contain CJK characters
   (㊗, ㈎, etc.), injection failed. Run with --debug to print raw outputs.
 """
@@ -71,7 +71,11 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-_MIN_POSITION = 50  # mirror datagen invariant; flag early positions
+# Datagen uses a 50-token floor because fineweb MID-document samples with
+# little left-context decode to noise. That doesn't apply to short adversarial
+# prompts where position 8 of 10 has all the context there is — so we
+# verbalize every position by default and just FLAG early ones.
+_MIN_POSITION = 50
 
 # Safety-refusal detection — the AV inherits RLHF safety training from its
 # instruct-tuned base model and may refuse or sanitize verbalizations of
@@ -231,7 +235,7 @@ def cmd_verbalize(args: argparse.Namespace) -> None:
             # flag them instead of producing noise.
             early_flag = t_idx < _MIN_POSITION
 
-            if early_flag and not args.verbalize_all:
+            if early_flag and args.skip_early_positions:
                 verbalization = None
             else:
                 verbalization = client.generate(
@@ -363,9 +367,10 @@ def main() -> None:
     v.add_argument("--max-new-tokens", type=int, default=200)
     v.add_argument("--injection-scale", type=float, default=None,
                    help="override sidecar injection_scale (rarely needed)")
-    v.add_argument("--verbalize-all", action="store_true",
-                   help="verbalize positions < min_position too "
-                        "(default: skip early positions, set verbalization=null)")
+    v.add_argument("--skip-early-positions", action="store_true",
+                   help=f"skip positions < {_MIN_POSITION} (set verbalization=null) "
+                        "to mirror the datagen floor. Default: verbalize all "
+                        "positions; early ones carry min_position_warning=True.")
     v.add_argument("--debug", action="store_true",
                    help="print CJK warning if injection looks wrong")
     v.set_defaults(func=cmd_verbalize)
