@@ -120,8 +120,11 @@ def cmd_extract(args: argparse.Namespace) -> None:
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model, torch_dtype=torch.bfloat16, trust_remote_code=True,
     ).to(args.device).eval()
-    print(f"[extract] {model.config.num_hidden_layers} layers, "
-          f"d_model={model.config.hidden_size}")
+    # Gemma-3 nests the text-model fields under config.text_config
+    # (mirrors nla.arch_adapters.resolve_text_config without the import).
+    text_cfg = getattr(model.config, "text_config", model.config)
+    print(f"[extract] {text_cfg.num_hidden_layers} layers, "
+          f"d_model={text_cfg.hidden_size}")
 
     datasets_to_run = args.datasets or list(DATASET_NAMES)
 

@@ -58,7 +58,8 @@ python experiments/adversarial_extraction/run_all.py \
     --decode-tokens 64 \
     --sglang-port 30001 \
     --sglang-tp 1 \
-    --sglang-mem-fraction 0.45 \
+    --sglang-mem-fraction 0.85 \
+    --sglang-extra-args="--attention-backend triton" \
     --temperature 0.0 \
     --max-new-tokens 200 \
     --workers 16

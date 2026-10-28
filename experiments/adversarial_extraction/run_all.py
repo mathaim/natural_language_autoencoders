@@ -223,7 +223,9 @@ def run_model(
         port=args.sglang_port,
         tp=args.sglang_tp,
         mem_fraction=args.sglang_mem_fraction,
-        extra_args=args.sglang_extra_args or [],
+        # Accept one quoted string ("--attention-backend triton") and split it:
+        # argparse nargs="*" won't consume tokens that start with "-".
+        extra_args=[t for a in (args.sglang_extra_args or []) for t in a.split()],
         log_path=sglang_log,
         sglang_python=getattr(args, "sglang_python", None),
     )
@@ -295,6 +297,9 @@ def main() -> None:
                     help="root directory; results go in {out-root}/{model-name}/")
 
     # Phase control
+    ap.add_argument("--dry-run", action="store_true",
+                    help="resolve checkpoints, split sglang extra args, print the "
+                         "plan per model and exit without running anything")
     ap.add_argument("--skip-extract", action="store_true",
                     help="skip extraction if activations.npy already exists")
     ap.add_argument("--skip-verbalize", action="store_true",
@@ -329,7 +334,8 @@ def main() -> None:
                     help="tensor_parallel_size for SGLang (use 4–8 for 70B)")
     ap.add_argument("--sglang-mem-fraction", type=float, default=0.85)
     ap.add_argument("--sglang-extra-args", nargs="*", default=None,
-                    help="extra args passed verbatim to sglang.launch_server")
+                    help="extra flags for sglang.launch_server, as ONE quoted "
+                         "string, e.g. --sglang-extra-args=\"--attention-backend triton\"")
 
     args = ap.parse_args()
 
@@ -346,6 +352,16 @@ def main() -> None:
         cfg = NLA_MODELS[model_name]
         if args.ckpt_root:
             cfg = resolve_checkpoints(cfg, args.ckpt_root)
+        if args.dry_run:
+            extra = [t for a in (args.sglang_extra_args or []) for t in a.split()]
+            print(f"  [dry-run] {model_name}: base={cfg.base_model}  layer={cfg.layer}")
+            print(f"             AV = {cfg.av_checkpoint}")
+            print(f"             AR = {cfg.ar_checkpoint}")
+            print(f"             sglang: port={args.sglang_port} tp={args.sglang_tp} "
+                  f"mem={args.sglang_mem_fraction} extra={extra}")
+            print(f"             verbalize: workers={args.workers} "
+                  f"skip_early={args.skip_early_positions}")
+            continue
         try:
             run_model(cfg, out_root, args)
         except subprocess.CalledProcessError as e:
@@ -353,6 +369,9 @@ def main() -> None:
         except KeyboardInterrupt:
             print(f"\n[run_all] interrupted — stopping")
             sys.exit(1)
+
+    if args.dry_run:
+        return
 
     print(f"\n{'═' * 72}")
     print("ALL DONE")
