@@ -76,7 +76,7 @@ from adv_datasets import DATASET_NAMES
 EXTRACT_SCRIPT = EXPERIMENT_DIR / "extract_adversarial.py"
 
 _SGLANG_READY_MARKER = "The server is fired up and ready to roll"
-_SGLANG_STARTUP_TIMEOUT = 300   # seconds — large models take time to load
+_SGLANG_STARTUP_TIMEOUT = 600   # seconds — model load + first-run JIT kernel compile
 _SGLANG_POLL_INTERVAL = 5
 
 
@@ -127,18 +127,31 @@ def _start_sglang(
     return proc
 
 
-def _wait_for_sglang(log_path: Path, timeout: int, poll: int) -> bool:
-    """Poll the SGLang log until the ready marker appears or timeout."""
+def _wait_for_sglang(
+    proc: subprocess.Popen, log_path: Path, timeout: int, poll: int,
+) -> bool:
+    """Poll until the SGLang ready marker appears, the process dies, or timeout.
+
+    Checking proc.poll() is what makes this fail fast: when the scheduler
+    subprocess crashes (e.g. a JIT compile error) the parent exits a moment
+    later, and there is no point waiting out the full timeout.
+    """
     deadline = time.time() + timeout
+    warned = False
     while time.time() < deadline:
         time.sleep(poll)
-        if log_path.exists():
-            text = log_path.read_text(errors="ignore")
-            if _SGLANG_READY_MARKER in text:
-                return True
-            if "Error" in text or "Traceback" in text:
-                print(f"[sglang] ⚠  error detected in log — check {log_path}")
-        print(f"[sglang] waiting for server (up to {int(deadline - time.time())}s left) …")
+        text = log_path.read_text(errors="ignore") if log_path.exists() else ""
+        if _SGLANG_READY_MARKER in text:
+            return True
+        if proc.poll() is not None:
+            print(f"[sglang] ✗ server process exited with code {proc.returncode} "
+                  f"before becoming ready — see {log_path}")
+            return False
+        if not warned and ("Traceback" in text or "Error" in text):
+            print(f"[sglang] ⚠  error text in log; still waiting for process to "
+                  f"exit or recover — {log_path}")
+            warned = True
+        print(f"[sglang] waiting for server ({int(deadline - time.time())}s left) …")
     return False
 
 
@@ -216,7 +229,9 @@ def run_model(
     )
 
     try:
-        ready = _wait_for_sglang(sglang_log, _SGLANG_STARTUP_TIMEOUT, _SGLANG_POLL_INTERVAL)
+        ready = _wait_for_sglang(
+            sglang_proc, sglang_log, _SGLANG_STARTUP_TIMEOUT, _SGLANG_POLL_INTERVAL,
+        )
         if not ready:
             print(f"[sglang] TIMEOUT waiting for {cfg.av_checkpoint} — "
                   f"check {sglang_log}")
