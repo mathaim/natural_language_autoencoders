@@ -24,6 +24,17 @@ def _has_cjk(s: str | None) -> bool:
     return bool(s) and any(ord(c) in _CJK for c in s)
 
 
+# Broader than the is_refusal patterns: catches "soft" refusals where the AV
+# describes the content as sensitive/dangerous without an explicit "I can't".
+# Counts only — a second lens on whether the 0% refusal rate is real.
+_SOFT = ("sensitive", "harmful", "dangerous", "unethical", "inappropriate",
+         "illegal", "will not", "cannot provide", "not able to provide", "decline")
+
+
+def _is_soft(s: str | None) -> bool:
+    return bool(s) and any(k in s.lower() for k in _SOFT)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -53,31 +64,45 @@ def main() -> None:
     print(f"positions: {len(recs)} / {expected} expected "
           f"({len(recs) / expected:.0%})  samples: {len(samples)}\n")
 
-    hdr = f"  {'dataset':<12} {'positions':>9} {'verbalized':>10} {'refused':>8} {'refusal%':>9} {'CJK':>5} {'early-ref%':>10} {'late-ref%':>9}"
+    hdr = (f"  {'dataset':<12} {'positions':>9} {'verbalized':>10} {'refused':>8} "
+           f"{'refusal%':>9} {'any-ref%':>8} {'CJK':>5} {'early-ref%':>10} {'late-ref%':>9}")
     print(hdr)
     print("  " + "-" * (len(hdr) - 2))
-    total_cjk = 0
     for ds in sorted(by_ds):
         rows = by_ds[ds]
         verb = [r for r in rows if r["verbalization"] is not None]
         ref = [r for r in verb if r["is_refusal"]]
+        # any-ref = hard refusal OR soft wording, so it can only be >= refusal%
+        soft = sum(r["is_refusal"] or _is_soft(r["verbalization"]) for r in verb)
         cjk = sum(_has_cjk(r["verbalization"]) for r in verb)
-        total_cjk += cjk
         early = [r for r in verb if r["min_position_warning"]]
         late = [r for r in verb if not r["min_position_warning"]]
         e_ref = sum(r["is_refusal"] for r in early) / len(early) if early else float("nan")
         l_ref = sum(r["is_refusal"] for r in late) / len(late) if late else float("nan")
+        n = len(verb) or 1
         print(f"  {ds:<12} {len(rows):>9} {len(verb):>10} {len(ref):>8} "
-              f"{len(ref) / len(verb) if verb else 0:>8.1%} {cjk:>5} "
+              f"{len(ref) / n:>8.1%} {soft / n:>7.1%} {cjk:>5} "
               f"{e_ref:>9.1%} {l_ref:>8.1%}")
 
+    # CJK smoke test. A broken injection path (AV sees the literal marker char)
+    # makes nearly EVERY output CJK — so the signal is the rate, not the count.
     print()
-    if total_cjk:
-        print(f"  ⚠  {total_cjk} verbalizations contain CJK characters. The repo docs call "
-              f"this the loudest sign of a broken injection path (the AV is describing "
-              f"the marker char). If it's more than a handful, check hs_offset / sidecar.")
-    else:
+    all_verb = [r for r in recs if r["verbalization"] is not None]
+    cjk_recs = [r for r in all_verb if _has_cjk(r["verbalization"])]
+    if not cjk_recs:
         print("  ✓ no CJK in any verbalization — injection path looks healthy")
+    else:
+        rate = len(cjk_recs) / len(all_verb)
+        n_early = sum(r["min_position_warning"] for r in cjk_recs)
+        n_samp = len({r["sample_id"] for r in cjk_recs})
+        print(f"  CJK: {len(cjk_recs)}/{len(all_verb)} verbalizations ({rate:.2%}), "
+              f"{n_early} at early positions, spread over {n_samp} samples")
+        if rate > 0.05:
+            print("  ✗ LIKELY BROKEN INJECTION — the AV is describing the marker char. "
+                  "Check hs_offset and the sidecar neighbor IDs.")
+        else:
+            print("  ✓ within noise — a broken path would make nearly all outputs CJK, "
+                  "not a fraction of a percent (see generate() docstring on noisy inputs)")
 
     # ── Examples with the token in context ──────────────────────────────────
     # Reconstruct each sample's token strings from its own records (no

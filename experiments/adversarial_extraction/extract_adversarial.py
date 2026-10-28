@@ -117,9 +117,20 @@ def cmd_extract(args: argparse.Namespace) -> None:
     tokenizer = AutoTokenizer.from_pretrained(
         args.base_model, trust_remote_code=True,
     )
-    model = AutoModelForCausalLM.from_pretrained(
-        args.base_model, torch_dtype=torch.bfloat16, trust_remote_code=True,
-    ).to(args.device).eval()
+    if args.device == "auto":
+        # Shard across every visible GPU (70B does not fit on one A100).
+        # Inputs go to the first shard; accelerate routes the rest.
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model, torch_dtype=torch.bfloat16, trust_remote_code=True,
+            device_map="auto",
+        ).eval()
+        args.device = model.device
+        print(f"[extract] device_map=auto over {torch.cuda.device_count()} GPUs, "
+              f"inputs on {args.device}")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.base_model, torch_dtype=torch.bfloat16, trust_remote_code=True,
+        ).to(args.device).eval()
     # Gemma-3 nests the text-model fields under config.text_config
     # (mirrors nla.arch_adapters.resolve_text_config without the import).
     text_cfg = getattr(model.config, "text_config", model.config)
@@ -374,7 +385,9 @@ def main() -> None:
                    help="hidden_states[layer + offset]. Default 1. "
                         "Flip to 0 if verbalizations look like CJK garbage.")
     e.add_argument("--out", required=True, help="output directory")
-    e.add_argument("--device", default="cuda")
+    e.add_argument("--device", default="cuda",
+                   help="torch device, or 'auto' to shard across all visible "
+                        "GPUs with device_map=auto (needed for 70B)")
     e.add_argument("--n-samples", type=int, default=None,
                    help="max samples per dataset (default: full dataset)")
     e.add_argument("--decode-tokens", type=int, default=64,
