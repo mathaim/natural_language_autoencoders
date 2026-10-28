@@ -71,7 +71,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(EXPERIMENT_DIR))
 
 from nla_model_configs import NLA_MODELS, NLAModelConfig, resolve_checkpoints
-from datasets import DATASET_NAMES
+from adv_datasets import DATASET_NAMES
 
 EXTRACT_SCRIPT = EXPERIMENT_DIR / "extract_adversarial.py"
 
@@ -82,6 +82,18 @@ _SGLANG_POLL_INTERVAL = 5
 
 # ─── SGLang server management ────────────────────────────────────────────────
 
+def _find_python(sglang_python: str | None) -> str:
+    """Resolve the Python binary to use for the SGLang server subprocess.
+
+    If --sglang-python is given, use it directly (e.g. the python from a
+    dedicated sglang-server conda env). Falls back to sys.executable so that
+    single-env setups still work.
+    """
+    if sglang_python:
+        return sglang_python
+    return sys.executable
+
+
 def _start_sglang(
     model_path: str,
     port: int,
@@ -89,9 +101,11 @@ def _start_sglang(
     mem_fraction: float,
     extra_args: list[str],
     log_path: Path,
+    sglang_python: str | None = None,
 ) -> subprocess.Popen:
+    python = _find_python(sglang_python)
     cmd = [
-        sys.executable, "-m", "sglang.launch_server",
+        python, "-m", "sglang.launch_server",
         "--model-path", model_path,
         "--port", str(port),
         "--disable-radix-cache",
@@ -198,6 +212,7 @@ def run_model(
         mem_fraction=args.sglang_mem_fraction,
         extra_args=args.sglang_extra_args or [],
         log_path=sglang_log,
+        sglang_python=getattr(args, "sglang_python", None),
     )
 
     try:
@@ -285,6 +300,11 @@ def main() -> None:
                     help="print CJK warning on injection failure")
 
     # SGLang options
+    ap.add_argument("--sglang-python", default=None,
+                    help="Python binary to use for the SGLang server subprocess. "
+                         "Use this to point at a dedicated sglang conda env when "
+                         "the main env has incompatible deps, e.g.: "
+                         "/home/euh7ys/miniconda3/envs/sglang-server/bin/python")
     ap.add_argument("--sglang-port", type=int, default=30000)
     ap.add_argument("--sglang-tp", type=int, default=1,
                     help="tensor_parallel_size for SGLang (use 4–8 for 70B)")

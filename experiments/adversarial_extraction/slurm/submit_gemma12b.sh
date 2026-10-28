@@ -15,8 +15,9 @@ set -euo pipefail
 mkdir -p /scratch/euh7ys/logs
 
 # ── Environment ──────────────────────────────────────────────────────────────
+export PYTHONNOUSERSITE=1   # ~/.local has broken packages that shadow the env
 source /home/euh7ys/miniconda3/etc/profile.d/conda.sh
-conda activate base
+conda activate /scratch/euh7ys/envs/nla
 
 export HF_HOME=/scratch/euh7ys/.cache/huggingface
 export TRANSFORMERS_CACHE=/scratch/euh7ys/.cache/huggingface

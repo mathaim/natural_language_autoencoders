@@ -104,7 +104,7 @@ def cmd_extract(args: argparse.Namespace) -> None:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    from datasets import load_dataset_by_name, DATASET_NAMES
+    from adv_datasets import load_dataset_by_name, DATASET_NAMES
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -314,7 +314,7 @@ def _check_cjk(text: str, sample_id: str, pos: int) -> None:
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    from datasets import DATASET_NAMES
+    from adv_datasets import DATASET_NAMES
 
     ap = argparse.ArgumentParser(
         description=__doc__,
