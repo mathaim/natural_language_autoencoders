@@ -201,11 +201,34 @@ def cmd_extract(args: argparse.Namespace) -> None:
 # ─── Phase 2: verbalize ──────────────────────────────────────────────────────
 
 def cmd_verbalize(args: argparse.Namespace) -> None:
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from nla_inference import NLAClient
 
     out = Path(args.out)
-    vec_matrix = np.load(out / "activations.npy")
+    out_path = out / "verbalizations.jsonl"
+    # mmap: 400MB+ for 7B and several GB for 70B — no need to hold it in RAM.
+    vec_matrix = np.load(out / "activations.npy", mmap_mode="r")
     samples = [json.loads(l) for l in (out / "samples.jsonl").read_text().splitlines()]
+    if args.datasets:
+        samples = [s for s in samples if s["dataset"] in args.datasets]
+
+    # ── Resume. Anything already in the output file is done. A SLURM timeout
+    # can leave a truncated last line; drop it and rewrite the file clean.
+    done: set[tuple[str, int]] = set()
+    if out_path.exists():
+        kept: list[str] = []
+        for line in out_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            done.add((r["sample_id"], r["position_idx"]))
+            kept.append(line)
+        out_path.write_text("".join(l + "\n" for l in kept))
+        print(f"[verbalize] resuming — {len(done)} positions already in {out_path.name}")
 
     client = NLAClient(
         args.av_checkpoint,
@@ -213,95 +236,101 @@ def cmd_verbalize(args: argparse.Namespace) -> None:
         injection_scale_override=args.injection_scale,
     )
 
-    # Filter to requested datasets
-    if args.datasets:
-        samples = [s for s in samples if s["dataset"] in args.datasets]
-
-    verbalization_records: list[dict] = []
-    total_positions = sum(s["n_tokens"] for s in samples)
-    done = 0
-
+    # ── Work list. Token strings are decoded here on the main thread so the
+    # tokenizer never runs inside the worker pool.
+    work: list[tuple[dict, int, str]] = []
     for s in samples:
-        T = s["n_tokens"]
-        vecs = vec_matrix[s["vec_start"]: s["vec_start"] + T]  # [T, d_model]
-        token_strs = [
-            # decode each token individually for the position label
-            _decode_single(client, tok_id)
-            for tok_id in s["token_ids"]
-        ]
+        tok_strs = [client.tokenizer.decode([t]) for t in s["token_ids"]]
+        for t_idx in range(s["n_tokens"]):
+            if (s["sample_id"], t_idx) not in done:
+                work.append((s, t_idx, tok_strs[t_idx]))
+    total = len(work)
+    print(f"[verbalize] {total} positions to do across {len(samples)} samples, "
+          f"{args.workers} concurrent requests")
 
-        for t_idx in range(T):
-            # Skip verbalization for very early positions (low left-context);
-            # flag them instead of producing noise.
-            early_flag = t_idx < _MIN_POSITION
+    def one(s: dict, t_idx: int, tok_str: str) -> dict:
+        early = t_idx < _MIN_POSITION
+        if early and args.skip_early_positions:
+            text = None
+        else:
+            vec = np.array(vec_matrix[s["vec_start"] + t_idx], dtype=np.float32)
+            text = client.generate(
+                vec, temperature=args.temperature, max_new_tokens=args.max_new_tokens,
+            )
+            if args.debug:
+                _check_cjk(text, s["sample_id"], t_idx)
+        return {
+            "sample_id": s["sample_id"],
+            "dataset": s["dataset"],
+            "position_idx": t_idx,
+            "token_id": s["token_ids"][t_idx],
+            "token_str": tok_str,
+            "min_position_warning": early,
+            "verbalization": text,
+            # True when the AV's safety training fired instead of describing
+            # the activation. Exclude from NLA analyses; the rate itself is
+            # informative (high on WMDP-chem = the AV recognises the content).
+            "is_refusal": text is not None and _is_refusal(text),
+        }
 
-            if early_flag and args.skip_early_positions:
-                verbalization = None
-            else:
-                verbalization = client.generate(
-                    vecs[t_idx],
-                    temperature=args.temperature,
-                    max_new_tokens=args.max_new_tokens,
-                )
-                if args.debug:
-                    _check_cjk(verbalization, s["sample_id"], t_idx)
+    # ── Run. Records are appended as they complete, so completion order is
+    # nondeterministic — key on (sample_id, position_idx) downstream. Failed
+    # requests are NOT written, so a resume retries them.
+    max_errors = 25
+    n_ok = n_err = 0
+    t0 = time.time()
+    with out_path.open("a") as fh, ThreadPoolExecutor(max_workers=args.workers) as ex:
+        futures = [ex.submit(one, s, t, ts) for s, t, ts in work]
+        for fut in as_completed(futures):
+            try:
+                rec = fut.result()
+            except Exception as e:  # noqa: BLE001 — log, skip, keep going
+                n_err += 1
+                if n_err <= 5:
+                    print(f"[verbalize] ✗ request failed: {type(e).__name__}: {e}")
+                if n_err >= max_errors:
+                    print(f"[verbalize] {n_err} failures — server is probably down; "
+                          f"stopping. Resubmit to resume from here.")
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    break
+                continue
+            fh.write(json.dumps(rec) + "\n")
+            n_ok += 1
+            if n_ok % 100 == 0:
+                fh.flush()   # bound the loss to <100 records on a hard kill
+            if n_ok % 500 == 0 or n_ok + n_err == total:
+                elapsed = time.time() - t0
+                rate = n_ok / elapsed if elapsed else 0.0
+                eta_min = (total - n_ok) / rate / 60 if rate else float("inf")
+                failed = f", {n_err} failed" if n_err else ""
+                print(f"  {n_ok}/{total} done  ({rate:.1f}/s, ETA {eta_min:.0f} min{failed})")
+        fh.flush()
 
-            refusal = verbalization is not None and _is_refusal(verbalization)
-            verbalization_records.append({
-                "sample_id": s["sample_id"],
-                "dataset": s["dataset"],
-                "position_idx": t_idx,
-                "token_id": s["token_ids"][t_idx],
-                "token_str": token_strs[t_idx],
-                "min_position_warning": early_flag,
-                "verbalization": verbalization,
-                # True when the AV's safety training triggered instead of
-                # a genuine description. These rows should be excluded from
-                # downstream NLA analyses (the verbalization doesn't reflect
-                # the activation's actual content). The refusal rate itself
-                # is informative: high refusal on WMDP-chem positions means
-                # the AV "recognises" the content type.
-                "is_refusal": refusal,
-            })
-            done += 1
+    records = [json.loads(l) for l in out_path.read_text().splitlines() if l.strip()]
+    _summarize(records)
+    print(f"\n[verbalize] verbalizations → {out_path}")
 
-        if done % 500 == 0 or done == total_positions:
-            print(f"  {done}/{total_positions} positions verbalized  "
-                  f"({s['dataset']} / {s['sample_id']})")
 
-    (out / "verbalizations.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in verbalization_records)
-    )
-    n_verbalized = sum(1 for r in verbalization_records if r["verbalization"] is not None)
-    n_refusals = sum(1 for r in verbalization_records if r["is_refusal"])
-    n_skipped = sum(1 for r in verbalization_records if r["verbalization"] is None)
-    print(f"\n[verbalize] {len(verbalization_records)} positions total")
-    print(f"  verbalized (genuine): {n_verbalized - n_refusals}")
-    print(f"  refusals (AV safety training triggered): {n_refusals}")
-    print(f"  skipped (early/low-context positions): {n_skipped}")
+def _summarize(records: list[dict]) -> None:
+    n_text = sum(1 for r in records if r["verbalization"] is not None)
+    n_ref = sum(1 for r in records if r["is_refusal"])
+    print(f"\n[verbalize] {len(records)} positions in file")
+    print(f"  verbalized (genuine): {n_text - n_ref}")
+    print(f"  refusals (AV safety training triggered): {n_ref}")
+    print(f"  skipped (early/low-context, --skip-early-positions): {len(records) - n_text}")
 
-    # Per-dataset refusal breakdown — high refusal on a specific dataset
-    # indicates the AV recognises that content type.
-    by_ds: dict[str, dict] = {}
-    for r in verbalization_records:
-        ds = r["dataset"]
-        if ds not in by_ds:
-            by_ds[ds] = {"total": 0, "refusals": 0}
-        if r["verbalization"] is not None:
-            by_ds[ds]["total"] += 1
-            if r["is_refusal"]:
-                by_ds[ds]["refusals"] += 1
+    # Per-dataset refusal rate — high on one dataset means the AV recognises
+    # that content type even through the activation bottleneck.
+    by_ds: dict[str, list[int]] = {}
+    for r in records:
+        if r["verbalization"] is None:
+            continue
+        tot_ref = by_ds.setdefault(r["dataset"], [0, 0])
+        tot_ref[0] += 1
+        tot_ref[1] += int(r["is_refusal"])
     print("\n  refusal rate by dataset:")
-    for ds, counts in by_ds.items():
-        rate = counts["refusals"] / counts["total"] if counts["total"] else 0
-        print(f"    {ds:<12}: {counts['refusals']:>4}/{counts['total']:<4}  ({rate:.0%})")
-
-    print(f"\n[verbalize] verbalizations → {out}/verbalizations.jsonl")
-
-
-def _decode_single(client: object, token_id: int) -> str:
-    """Decode one token ID to a string using the AV client's tokenizer."""
-    return client.tokenizer.decode([token_id])
+    for ds, (tot, ref) in sorted(by_ds.items()):
+        print(f"    {ds:<12}: {ref:>5}/{tot:<5}  ({ref / tot:.0%})")
 
 
 _CJK_RANGE = range(0x4E00, 0x9FFF + 1)
@@ -367,6 +396,9 @@ def main() -> None:
     v.add_argument("--max-new-tokens", type=int, default=200)
     v.add_argument("--injection-scale", type=float, default=None,
                    help="override sidecar injection_scale (rarely needed)")
+    v.add_argument("--workers", type=int, default=16,
+                   help="concurrent AV requests in flight. SGLang batches them "
+                        "server-side; sequential (1) is ~10x slower. Default 16.")
     v.add_argument("--skip-early-positions", action="store_true",
                    help=f"skip positions < {_MIN_POSITION} (set verbalization=null) "
                         "to mirror the datagen floor. Default: verbalize all "

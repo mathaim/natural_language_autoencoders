@@ -249,6 +249,7 @@ def run_model(
         ]
         if args.datasets:
             verbalize_cmd += ["--datasets"] + args.datasets
+        verbalize_cmd += ["--workers", str(args.workers)]
         if args.skip_early_positions:
             verbalize_cmd.append("--skip-early-positions")
         if args.debug:
@@ -309,6 +310,8 @@ def main() -> None:
     # Verbalize options
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--max-new-tokens", type=int, default=200)
+    ap.add_argument("--workers", type=int, default=16,
+                    help="concurrent AV requests during verbalize (default 16)")
     ap.add_argument("--skip-early-positions", action="store_true",
                     help="null out positions < 50 instead of verbalizing them "
                          "(default: verbalize every position)")

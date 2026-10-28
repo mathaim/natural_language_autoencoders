@@ -60,6 +60,7 @@ python experiments/adversarial_extraction/run_all.py \
     --sglang-tp 1 \
     --sglang-mem-fraction 0.45 \
     --temperature 0.0 \
-    --max-new-tokens 200
+    --max-new-tokens 200 \
+    --workers 16
 
 echo "=== DONE ==="
