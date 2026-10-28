@@ -22,7 +22,7 @@ export HF_HOME=/scratch/euh7ys/.cache/huggingface
 export TRANSFORMERS_CACHE=/scratch/euh7ys/.cache/huggingface
 # Gemma is a gated repo — HF_TOKEN must be set
 export HF_TOKEN=${HF_TOKEN:?HF_TOKEN not set — needed for Gemma}
-REPO=/home/euh7ys/NaturalLanguageAutoencoders
+REPO=/scratch/euh7ys/NaturalLanguageAutoencoders
 CKPT_ROOT=/scratch/euh7ys/nla_ckpts
 OUT_ROOT=/scratch/euh7ys/adversarial_runs
 
