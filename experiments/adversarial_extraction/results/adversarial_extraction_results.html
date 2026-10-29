@@ -118,11 +118,11 @@
 <section class="tiles">
   <div class="tile"><div class="n">58,177</div><div class="l">token positions verbalized, 100 % coverage, zero failed requests</div></div>
   <div class="tile"><div class="n">≤ 0.3 %</div><div class="l">hard refusals by the verbalizer on any dataset, either model</div></div>
-  <div class="tile"><div class="n">12–20 %</div><div class="l">positions on jailbreak prompts described with harm language, vs ~3 % on knowledge prompts</div></div>
+  <div class="tile"><div class="n">12–19 %</div><div class="l">positions on jailbreak prompts described with harm language, vs 2–4 % on knowledge prompts</div></div>
 </section>
 
 <h2>Finding</h2>
-<p>The verbalizers almost never decline to describe an activation. But on the two jailbreak-style datasets, AdvBench and HarmBench, between 12 % and 20 % of positions are described with words like <em>harmful</em>, <em>dangerous</em> or <em>illegal</em>. On WMDP, which is hazardous knowledge framed as a benign multiple-choice question, and on TruthfulQA, that rate is around 3 %.</p>
+<p>The verbalizers almost never decline to describe an activation. But on the two jailbreak-style datasets, AdvBench and HarmBench, between 12 % and 19 % of positions are described with words like <em>harmful</em>, <em>dangerous</em> or <em>illegal</em>. On WMDP, which is hazardous knowledge framed as a benign multiple-choice question, and on TruthfulQA, that rate is 2–4 %.</p>
 <p>The two models agree within a few points on every dataset even though they share no weights, tokenizer or training data. The residual stream at this depth carries a readable "this request is harmful" signal for harmful <em>intent</em>, and it is largely absent for hazardous <em>content</em> asked about in a neutral frame.</p>
 
 <figure>

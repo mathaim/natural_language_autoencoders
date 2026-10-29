@@ -93,6 +93,36 @@ def model_label(slug: str) -> tuple[str, str]:
 
 # ─── Stats ───────────────────────────────────────────────────────────────────
 
+N_BINS = 10
+
+
+def profile(run: dict, ds: str) -> dict:
+    """Where in the prompt flags land, by relative position (deciles).
+
+    Prompts differ in length (and tokenizers differ between models), so
+    position_idx / n_tokens is the comparable axis. Each decile holds ~10 %
+    of a prompt's tokens; the last bin always contains the final token, the
+    one the model answers from. `last` is the rate at exactly that token.
+    """
+    tot, any_c, ref_c = [0] * N_BINS, [0] * N_BINS, [0] * N_BINS
+    last_n = last_any = last_ref = 0
+    for r in run["recs"]:
+        if r["dataset"] != ds or r["verbalization"] is None:
+            continue
+        n = run["samples"][r["sample_id"]]["n_tokens"]
+        b = min(N_BINS - 1, r["position_idx"] * N_BINS // max(n, 1))
+        tot[b] += 1
+        f, h = _flag(r), bool(r["is_refusal"])
+        any_c[b] += f
+        ref_c[b] += h
+        if r["position_idx"] == n - 1:
+            last_n += 1
+            last_any += f
+            last_ref += h
+    return {"tot": tot, "any": any_c, "ref": ref_c,
+            "last": {"n": last_n, "any": last_any, "ref": last_ref}}
+
+
 def stats(run: dict) -> dict:
     by_ds: dict[str, list[dict]] = defaultdict(list)
     for r in run["recs"]:
@@ -119,6 +149,8 @@ def stats(run: dict) -> dict:
         out[ds]["any_ref_pct"] = 100 * out[ds]["any_ref"] / n
     expected = sum(s["n_tokens"] for s in run["samples"].values())
     all_verb = [r for r in run["recs"] if r["verbalization"] is not None]
+    for ds in out:
+        out[ds]["profile"] = profile(run, ds)
     cjk = [r for r in all_verb if _has_cjk(r["verbalization"])]
     return {
         "datasets": out,
@@ -255,6 +287,8 @@ details.sample[open]>summary{border-bottom:1px solid var(--rule)}
 .verb{margin-top:6px;overflow-wrap:anywhere}
 .harm-list .pos{border-top:1px solid var(--rule);padding:12px 0}.harm-list .pos:first-child{border-top:0}
 .harm-list{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:4px 18px;margin-top:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:8px}
+figure.small{margin:0;padding:14px 14px 8px}figure.small .title{font-size:14px}figure.small .sub{font-size:12px;margin-bottom:6px}
 .model-head{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-top:22px}.model-head .dot{width:12px;height:12px;border-radius:3px;display:inline-block;background:var(--c)}
 @media (prefers-reduced-motion:reduce){.bar{transition:none}}
 """
@@ -283,6 +317,120 @@ svg.appendChild(r);svg.appendChild(lab)})});
 svg.appendChild(el("line",{x1:labelW,y1:top,x2:labelW,y2:top+rowH*data.length,stroke:"var(--fg-3)"}));
 wrap.appendChild(svg)})();
 """
+
+
+PROFILE_JS = """
+(function(){
+var panels=%(panels)s, series=%(series)s;
+var NS="http://www.w3.org/2000/svg";
+function el(n,a,t){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);if(t!=null)e.textContent=t;return e}
+panels.forEach(function(p){
+var wrap=document.getElementById(p.id);if(!wrap)return;var tip=wrap.querySelector(".tip");
+var W=360,H=190,left=36,right=8,top=10,bottom=28,plotW=W-left-right,plotH=H-top-bottom;
+var nb=p.bins.length,ns=series.length,groupW=plotW/nb,bw=Math.max(2,(groupW-6)/ns);
+var ymax=p.ymax;var svg=el("svg",{viewBox:"0 0 "+W+" "+H,role:"img","aria-label":p.title});
+var ticks=p.ticks;ticks.forEach(function(t){var y=top+plotH-t/ymax*plotH;
+svg.appendChild(el("line",{x1:left,y1:y,x2:W-right,y2:y,stroke:"var(--rule)"}));
+svg.appendChild(el("text",{x:left-5,y:y+4,"text-anchor":"end","font-size":10,fill:"var(--fg-3)"},t+p.unit))});
+p.bins.forEach(function(b,i){var gx=left+i*groupW+3;
+if(i%%3==0||i==nb-1)svg.appendChild(el("text",{x:left+i*groupW+groupW/2,y:H-8,"text-anchor":"middle","font-size":10,fill:"var(--fg-3)"},b.label));
+b.v.forEach(function(v,j){if(!v)return;var h=Math.max(v.y/ymax*plotH,v.y>0?1.5:0),x=gx+j*bw,y=top+plotH-h;
+var r=el("rect",{x:x,y:y,width:bw-1,height:h,rx:2,fill:"var(--s"+(j+1)+")","class":"bar",tabindex:0});
+var txt=series[j]+" · "+b.label+" of prompt: "+v.y.toFixed(1)+p.unit+" ("+v.k.toLocaleString()+" of "+v.n.toLocaleString()+")";
+function show(){tip.textContent=txt;tip.style.display="block";var bb=r.getBoundingClientRect(),c=wrap.getBoundingClientRect();tip.style.left=(bb.left-c.left+bb.width/2)+"px";tip.style.top=(bb.top-c.top)+"px";svg.querySelectorAll(".bar").forEach(function(o){if(o!==r)o.classList.add("dimmed")})}
+function hide(){tip.style.display="none";svg.querySelectorAll(".bar").forEach(function(o){o.classList.remove("dimmed")})}
+r.addEventListener("mouseenter",show);r.addEventListener("mouseleave",hide);r.addEventListener("focus",show);r.addEventListener("blur",hide);
+svg.appendChild(r)})});
+svg.appendChild(el("line",{x1:left,y1:top+plotH,x2:W-right,y2:top+plotH,stroke:"var(--fg-3)"}));
+wrap.appendChild(svg)})})();
+"""
+
+
+def _axis(peak: float) -> tuple[float, list]:
+    """Round axis: smallest nice step giving <= 5 ticks above peak*1.1."""
+    target = max(peak, 0.5) * 1.1
+    for step in (0.5, 1, 2, 5, 10, 20, 25, 50):
+        n = -(-target // step)  # ceil
+        if n <= 5:
+            return step * n, [step * i for i in range(int(n) + 1)]
+    return 100.0, [0, 25, 50, 75, 100]
+
+
+def profile_section(st: dict, slugs: list[str], labels: dict, datasets: list[str]) -> tuple[str, list, str]:
+    """Two grids of small multiples (hard refusals, any-ref) + a stdout table."""
+    bin_labels = [f"{10 * i}–{10 * (i + 1)}%" for i in range(N_BINS)]
+    panels, html_parts, lines = [], [], []
+    legend = "".join(f'<span style="--c:var(--s{i + 1})">{esc(labels[m][0])}</span>' for i, m in enumerate(slugs))
+
+    def grid(kind: str, title: str, sub: str, unit: str, value):
+        html_parts.append(f'<h3>{title}</h3><p>{sub}</p><div class="legend">{legend}</div><div class="grid">')
+        for d in datasets:
+            bins = []
+            ymax = 0.0
+            for i in range(N_BINS):
+                v = []
+                for m in slugs:
+                    s = st[m]["datasets"].get(d)
+                    if not s:
+                        v.append(None)
+                        continue
+                    y, k, n = value(s["profile"], i)
+                    ymax = max(ymax, y)
+                    v.append({"y": y, "k": k, "n": n})
+                bins.append({"label": bin_labels[i], "v": v})
+            ymax, ticks = _axis(ymax)
+            pid = f"prof-{kind}-{d}"
+            panels.append({"id": pid, "title": f"{title} — {DATASET_LABEL.get(d, d)}", "bins": bins,
+                           "ymax": ymax, "ticks": ticks, "unit": unit})
+            lasts = []
+            for m in slugs:
+                s = st[m]["datasets"].get(d)
+                if s:
+                    L = s["profile"]["last"]
+                    key = "ref" if kind == "ref" else "any"
+                    lasts.append(f'{esc(labels[m][0])}: {100 * L[key] / max(L["n"], 1):.1f}%')
+            html_parts.append(f'<figure class="small"><div class="title">{DATASET_LABEL.get(d, d)}</div>'
+                              f'<div class="sub">at the final token — {" · ".join(lasts)}</div>'
+                              f'<div class="chart-wrap" id="{pid}"><div class="tip"></div></div></figure>')
+        html_parts.append('</div>')
+
+    def any_rate(pr, i):
+        n = pr["tot"][i]
+        return (100 * pr["any"][i] / n if n else 0.0), pr["any"][i], n
+
+    def ref_share(pr, i):
+        tot_ref = sum(pr["ref"])
+        return (100 * pr["ref"][i] / tot_ref if tot_ref else 0.0), pr["ref"][i], tot_ref
+
+    grid("any", "Harm language by position in the prompt",
+         "Any-ref rate within each decile of the prompt (0–10 % = the first tokens, 90–100 % = the end, including the final token).",
+         "%", any_rate)
+    grid("ref", "Hard refusals by position in the prompt",
+         "Where the verbalizer's hard refusals fall, as a share of all refusals on that dataset. Counts are small (see the table), so read these as sparse.",
+         "%", ref_share)
+
+    # stdout table — aggregate only, safe to paste
+    lines.append("\nPOSITION PROFILE (any-ref % per decile of prompt; last = rate at final token)")
+    lines.append(f"  {'dataset':<11}{'model':<22}" + "".join(f"{b:>8}" for b in bin_labels) + f"{'last':>8}")
+    for d in datasets:
+        for m in slugs:
+            s = st[m]["datasets"].get(d)
+            if not s:
+                continue
+            pr = s["profile"]
+            row = "".join(f"{(100 * pr['any'][i] / pr['tot'][i] if pr['tot'][i] else 0):>8.1f}" for i in range(N_BINS))
+            L = pr["last"]
+            lines.append(f"  {d:<11}{labels[m][0][:21]:<22}{row}{100 * L['any'] / max(L['n'], 1):>8.1f}")
+    lines.append("\nHARD REFUSALS per decile (counts)")
+    for d in datasets:
+        for m in slugs:
+            s = st[m]["datasets"].get(d)
+            if not s:
+                continue
+            pr = s["profile"]
+            lines.append(f"  {d:<11}{labels[m][0][:21]:<22}" + "".join(f"{pr['ref'][i]:>8d}" for i in range(N_BINS))
+                         + f"{pr['last']['ref']:>8d}")
+    return "".join(html_parts), panels, "\n".join(lines)
 
 
 def fmt_pct(x) -> str:
@@ -385,6 +533,15 @@ def build(runs: dict[str, dict], args: argparse.Namespace) -> str:
                    f'{"Within the documented noise floor; a broken path makes nearly every output CJK." if cjk_ok else "Above 5 % — check hs_offset and sidecar neighbour IDs."}</li>')
     out.append('</ul>')
 
+    # ── position profiles ──
+    out.append('<h2>Where in the prompt</h2>'
+               '<p>Prompts differ in length and the two tokenizers split them differently, so positions are compared as a fraction of each prompt. '
+               'Hover a bar for the count behind it.</p>')
+    prof_html, panels, prof_table = profile_section(st, slugs, labels, datasets)
+    out.append(prof_html)
+    out.append("<script>" + PROFILE_JS % {"panels": json.dumps(panels),
+                                         "series": json.dumps([labels[m][0] for m in slugs])} + "</script>")
+
     # ── examples ──
     out.append('<h2>Examples</h2><p>Random prompts per dataset and model (seed {}). Each shows the prompt, the base model\'s greedy reply, and a spread of '
                'positions with the verbalizer\'s description of the activation there. The bracketed token is the position being read.</p>'.format(args.seed))
@@ -426,7 +583,7 @@ def build(runs: dict[str, dict], args: argparse.Namespace) -> str:
                '<li><strong>One layer per model, greedy decoding.</strong> One description per position; the AV\'s distribution over descriptions is not sampled.</li>'
                '<li><strong>Early positions</strong> (&lt; 50 tokens of left context) are included; the repo notes activations there decode less reliably.</li></ul>')
     out.append('</main>')
-    return "\n".join(out)
+    return "\n".join(out), prof_table
 
 
 def main() -> None:
@@ -452,11 +609,12 @@ def main() -> None:
         runs[m] = load_run(d, args.datasets)
         print(f"[report] {m}: {len(runs[m]['samples'])} prompts, {len(runs[m]['recs'])} positions")
 
-    page = build(runs, args)
+    page, prof_table = build(runs, args)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page, encoding="utf-8")
     print(f"[report] wrote {out}  ({out.stat().st_size / 1e6:.1f} MB)")
+    print(prof_table)  # aggregate numbers only — safe to copy elsewhere
 
 
 if __name__ == "__main__":
