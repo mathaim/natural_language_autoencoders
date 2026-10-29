@@ -77,6 +77,10 @@
   .tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; padding: 6px 9px; border-radius: 4px; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); display: none; font-variant-numeric: tabular-nums; }
   figcaption { font-size: 13px; color: var(--fg-3); margin-top: 10px; }
 
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 8px; }
+  figure.small { margin: 0; padding: 14px 14px 8px; }
+  figure.small .title { font-size: 14px; }
+  figure.small .sub { font-size: 12px; margin-bottom: 6px; }
   .table-wrap { overflow-x: auto; margin-top: 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
   table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
   th, td { padding: 9px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
@@ -124,6 +128,7 @@
 <h2>Finding</h2>
 <p>The verbalizers almost never decline to describe an activation. But on the two jailbreak-style datasets, AdvBench and HarmBench, between 12 % and 19 % of positions are described with words like <em>harmful</em>, <em>dangerous</em> or <em>illegal</em>. On WMDP, which is hazardous knowledge framed as a benign multiple-choice question, and on TruthfulQA, that rate is 2–4 %.</p>
 <p>The two models agree within a few points on every dataset even though they share no weights, tokenizer or training data. The residual stream at this depth carries a readable "this request is harmful" signal for harmful <em>intent</em>, and it is largely absent for hazardous <em>content</em> asked about in a neutral frame.</p>
+<p><strong>The signal builds across the prompt and peaks at the final token.</strong> On AdvBench, harm language rises monotonically from 0 % of positions in the first tenth of the prompt to 54 % (Qwen) and 47 % (Gemma) in the last tenth; at the final token, the one the model generates from, it is 52 % and 49 %. HarmBench goes 0 → 24 % / 25 %. WMDP stays flat at ~3 % at every decile and is 0.5 % at the final token.</p>
 
 <figure>
   <div class="title">Positions described with harm language</div>
@@ -159,6 +164,87 @@
   <li><span class="pill">pass</span> Sidecar contract: marker token, neighbour IDs, <code>injection_scale</code> and <code>d_model</code> loaded from each checkpoint's <code>nla_meta.yaml</code> and asserted against the live tokenizer (Qwen: <code>㈎</code>/149705, scale 150; Gemma: <code>㈜</code>/246566, scale 80000).</li>
 </ul>
 
+<h2>Where in the prompt</h2>
+<p>Prompts differ in length and the two tokenizers split them differently (the same 200 AdvBench prompts are 2,554 Qwen tokens and 2,762 Gemma tokens), so positions are compared as a fraction of each prompt. The last decile always contains the final token. Hover a bar for the value.</p>
+
+<h3>Harm language by position</h3>
+<p>Any-ref rate within each decile of the prompt. Rate at exactly the final token in each subtitle.</p>
+<div class="legend"><span class="s1">Qwen2.5-7B (L20)</span><span class="s2">Gemma-3-12B (L32)</span></div>
+<div class="grid">
+  <figure class="small"><div class="title">AdvBench</div><div class="sub">final token — Qwen 52.5 % · Gemma 49.0 %</div><div class="chart-wrap" id="p-any-advbench"><div class="tip"></div></div></figure>
+  <figure class="small"><div class="title">HarmBench</div><div class="sub">final token — Qwen 22.5 % · Gemma 27.5 %</div><div class="chart-wrap" id="p-any-harmbench"><div class="tip"></div></div></figure>
+  <figure class="small"><div class="title">WMDP</div><div class="sub">final token — Qwen 0.5 % · Gemma 0.5 %</div><div class="chart-wrap" id="p-any-wmdp"><div class="tip"></div></div></figure>
+  <figure class="small"><div class="title">TruthfulQA</div><div class="sub">final token — Qwen 5.0 % · Gemma 5.0 %</div><div class="chart-wrap" id="p-any-truthfulqa"><div class="tip"></div></div></figure>
+</div>
+
+<h3>Hard refusals by position</h3>
+<p>Where the verbalizer's hard refusals fall, as a share of all refusals on that dataset. Totals are tiny (1–23 per row), so these are sparse by construction; most sit in early WMDP positions with little left context.</p>
+<div class="legend"><span class="s1">Qwen2.5-7B (L20)</span><span class="s2">Gemma-3-12B (L32)</span></div>
+<div class="grid">
+  <figure class="small"><div class="title">AdvBench</div><div class="sub">Qwen 1 refusal · Gemma 2</div><div class="chart-wrap" id="p-ref-advbench"><div class="tip"></div></div></figure>
+  <figure class="small"><div class="title">HarmBench</div><div class="sub">Qwen 0 · Gemma 1</div><div class="chart-wrap" id="p-ref-harmbench"><div class="tip"></div></div></figure>
+  <figure class="small"><div class="title">WMDP</div><div class="sub">Qwen 16 · Gemma 23</div><div class="chart-wrap" id="p-ref-wmdp"><div class="tip"></div></div></figure>
+  <figure class="small"><div class="title">TruthfulQA</div><div class="sub">Qwen 6 · Gemma 3</div><div class="chart-wrap" id="p-ref-truthfulqa"><div class="tip"></div></div></figure>
+</div>
+
+<script>
+(function () {
+  var labels = ["0–10%","10–20%","20–30%","30–40%","40–50%","50–60%","60–70%","70–80%","80–90%","90–100%"];
+  var series = ["Qwen2.5-7B", "Gemma-3-12B"];
+  var any = {
+    advbench:   [[0.0,0.4,2.0,6.5,14.3,24.2,35.1,36.8,37.0,54.1], [0.0,0.0,1.4,4.5,11.8,17.0,25.7,36.9,37.7,47.4]],
+    harmbench:  [[0.0,2.0,1.5,11.3,15.4,16.8,17.3,17.5,21.9,23.6], [0.0,0.9,3.4,6.3,13.0,18.6,20.8,20.5,25.8,24.7]],
+    wmdp:       [[1.9,3.3,3.2,2.6,3.7,3.0,3.6,3.0,2.8,3.2], [2.5,5.2,3.5,2.9,3.7,2.9,2.4,2.9,3.2,2.4]],
+    truthfulqa: [[0.0,1.4,1.3,4.1,5.3,2.4,2.9,1.8,3.5,4.1], [0.0,0.9,3.8,4.4,4.8,4.5,7.5,4.4,3.7,5.4]]
+  };
+  var ref = {
+    advbench:   [[0,0,0,0,0,0,0,0,1,0], [0,0,0,0,0,1,0,0,0,1]],
+    harmbench:  [[0,0,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]],
+    wmdp:       [[1,3,6,2,0,2,0,1,0,1], [0,3,7,1,0,0,1,2,7,2]],
+    truthfulqa: [[0,0,0,0,0,0,0,1,4,1], [0,0,0,0,0,1,0,1,1,0]]
+  };
+  var NS = "http://www.w3.org/2000/svg";
+  function el(n, a, t) { var e = document.createElementNS(NS, n); for (var k in a) e.setAttribute(k, a[k]); if (t != null) e.textContent = t; return e; }
+  function axis(peak) {
+    var target = Math.max(peak, 0.5) * 1.1, steps = [0.5, 1, 2, 5, 10, 20, 25, 50];
+    for (var i = 0; i < steps.length; i++) { var n = Math.ceil(target / steps[i]); if (n <= 5) { var t = []; for (var j = 0; j <= n; j++) t.push(steps[i] * j); return [steps[i] * n, t]; } }
+    return [100, [0, 25, 50, 75, 100]];
+  }
+  function draw(id, rows, tipFn) {
+    var wrap = document.getElementById(id); if (!wrap) return; var tip = wrap.querySelector(".tip");
+    var W = 360, H = 190, left = 36, right = 8, top = 10, bottom = 28, plotW = W - left - right, plotH = H - top - bottom;
+    var nb = 10, ns = rows.length, groupW = plotW / nb, bw = Math.max(2, (groupW - 6) / ns);
+    var peak = 0; rows.forEach(function (r) { r.forEach(function (v) { if (v > peak) peak = v; }); });
+    var ax = axis(peak), ymax = ax[0], ticks = ax[1];
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": id });
+    ticks.forEach(function (t) { var y = top + plotH - t / ymax * plotH;
+      svg.appendChild(el("line", { x1: left, y1: y, x2: W - right, y2: y, stroke: "var(--rule)" }));
+      svg.appendChild(el("text", { x: left - 5, y: y + 4, "text-anchor": "end", "font-size": 10, fill: "var(--fg-3)" }, t + "%")); });
+    for (var i = 0; i < nb; i++) {
+      var gx = left + i * groupW + 3;
+      if (i % 3 === 0 || i === nb - 1) svg.appendChild(el("text", { x: left + i * groupW + groupW / 2, y: H - 8, "text-anchor": "middle", "font-size": 10, fill: "var(--fg-3)" }, labels[i]));
+      rows.forEach(function (r, j) {
+        var v = r[i], h = Math.max(v / ymax * plotH, v > 0 ? 1.5 : 0), x = gx + j * bw, y = top + plotH - h;
+        var rect = el("rect", { x: x, y: y, width: bw - 1, height: h, rx: 2, fill: "var(--series-" + (j + 1) + ")", "class": "bar", tabindex: 0 });
+        var txt = tipFn(series[j], labels[i], j, i);
+        function show() { tip.textContent = txt; tip.style.display = "block"; var b = rect.getBoundingClientRect(), c = wrap.getBoundingClientRect(); tip.style.left = (b.left - c.left + b.width / 2) + "px"; tip.style.top = (b.top - c.top) + "px"; svg.querySelectorAll(".bar").forEach(function (o) { if (o !== rect) o.classList.add("dim"); }); }
+        function hide() { tip.style.display = "none"; svg.querySelectorAll(".bar").forEach(function (o) { o.classList.remove("dim"); }); }
+        rect.addEventListener("mouseenter", show); rect.addEventListener("mouseleave", hide); rect.addEventListener("focus", show); rect.addEventListener("blur", hide);
+        svg.appendChild(rect);
+      });
+    }
+    svg.appendChild(el("line", { x1: left, y1: top + plotH, x2: W - right, y2: top + plotH, stroke: "var(--fg-3)" }));
+    wrap.appendChild(svg);
+  }
+  Object.keys(any).forEach(function (d) {
+    draw("p-any-" + d, any[d], function (s, lab, j, i) { return s + " · " + lab + " of prompt: " + any[d][j][i].toFixed(1) + "% of positions"; });
+    var tot = ref[d].map(function (r) { return r.reduce(function (a, b) { return a + b; }, 0); });
+    var share = ref[d].map(function (r, j) { return r.map(function (v) { return tot[j] ? 100 * v / tot[j] : 0; }); });
+    draw("p-ref-" + d, share, function (s, lab, j, i) { return s + " · " + lab + " of prompt: " + ref[d][j][i] + " of " + tot[j] + " refusals"; });
+  });
+})();
+</script>
+
 <h2>What was run</h2>
 <div class="steps">
   <div class="step"><b>Extract</b><span>Base model forward pass with <code>output_hidden_states</code>; the layer-K residual captured at every token position; greedy 64-token decode saved as the base model's own answer.</span></div>
@@ -187,8 +273,8 @@
 
 <h2>Next</h2>
 <ul>
-  <li>Position profile: where in a prompt the harm language first appears, and whether it persists to the final token the model answers from.</li>
-  <li>Cross-reference with <code>model_output_is_refusal</code>: does AV harm language at the last position predict the base model refusing?</li>
+  <li>Cross-reference with <code>model_output_is_refusal</code>: the base model refuses 181/200 AdvBench prompts (Qwen) and 142/200 (Gemma), 0/200 WMDP. Does AV harm language at the final token predict which prompts get refused?</li>
+  <li>Absolute-position view of the same profile, to separate "late in the prompt" from "after enough context".</li>
   <li>WMDP by subject (bio / chem / cyber) and by whether the base model answered correctly.</li>
 </ul>
 </main>
