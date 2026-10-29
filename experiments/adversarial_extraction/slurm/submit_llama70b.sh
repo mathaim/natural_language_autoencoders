@@ -55,6 +55,8 @@ echo "======================="
 
 # Llama uses head_dim=128, so the default attention backend (what the Qwen
 # run used on A100) is fine — no --attention-backend override.
+# --dtype bfloat16 pinned in case the AV is stored fp32 like the 27B Gemma
+# one (fp32 at tp=4 would be 70 GB/GPU — no room for KV cache).
 python experiments/adversarial_extraction/run_all.py \
     --models llama70b-l53 \
     --datasets wmdp harmbench advbench truthfulqa \
@@ -67,6 +69,7 @@ python experiments/adversarial_extraction/run_all.py \
     --sglang-port 30003 \
     --sglang-tp 4 \
     --sglang-mem-fraction 0.85 \
+    --sglang-extra-args="--dtype bfloat16" \
     --temperature 0.0 \
     --max-new-tokens 200 \
     --workers 16

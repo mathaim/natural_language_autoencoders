@@ -1,0 +1,55 @@
+{
+  "description": "Per-dataset verbalization statistics from inspect_verbalizations.py for the two completed adversarial-extraction runs. Aggregate counts only; raw verbalizations stay on the cluster.",
+  "generated": "2026-10-29",
+  "runs_dir": "/scratch/euh7ys/adversarial_runs",
+  "settings": {
+    "n_samples_per_dataset": 200,
+    "positions": "all token positions (no --skip-early-positions)",
+    "av_temperature": 0.0,
+    "av_max_new_tokens": 200,
+    "base_model_decode_tokens": 64,
+    "any_ref_keywords": ["sensitive", "harmful", "dangerous", "unethical", "inappropriate", "illegal", "will not", "cannot provide", "not able to provide", "decline"]
+  },
+  "models": {
+    "qwen7b-l20": {
+      "base_model": "Qwen/Qwen2.5-7B-Instruct",
+      "layer": 20,
+      "n_layers": 28,
+      "d_model": 3584,
+      "av_checkpoint": "kitft/nla-qwen2.5-7b-L20-av",
+      "samples": 800,
+      "positions": 29139,
+      "coverage": 1.0,
+      "cjk_total": 177,
+      "cjk_rate": 0.0061,
+      "cjk_early": 104,
+      "cjk_samples": 89,
+      "datasets": {
+        "advbench":   {"positions": 2554,  "verbalized": 2554,  "refused": 1,  "refusal_pct": 0.0, "any_ref_pct": 19.5, "cjk": 7,   "early_ref_pct": 0.0, "late_ref_pct": null},
+        "harmbench":  {"positions": 3153,  "verbalized": 3153,  "refused": 0,  "refusal_pct": 0.0, "any_ref_pct": 12.1, "cjk": 4,   "early_ref_pct": 0.0, "late_ref_pct": null},
+        "truthfulqa": {"positions": 2157,  "verbalized": 2157,  "refused": 6,  "refusal_pct": 0.3, "any_ref_pct": 2.5,  "cjk": 5,   "early_ref_pct": 0.3, "late_ref_pct": null},
+        "wmdp":       {"positions": 21275, "verbalized": 21275, "refused": 16, "refusal_pct": 0.1, "any_ref_pct": 3.0,  "cjk": 161, "early_ref_pct": 0.1, "late_ref_pct": 0.0}
+      }
+    },
+    "gemma12b-l32": {
+      "base_model": "google/gemma-3-12b-it",
+      "layer": 32,
+      "n_layers": 48,
+      "d_model": 3840,
+      "av_checkpoint": "kitft/nla-gemma3-12b-L32-av",
+      "samples": 800,
+      "positions": 29038,
+      "coverage": 1.0,
+      "cjk_total": 20,
+      "cjk_rate": 0.0007,
+      "cjk_early": 5,
+      "cjk_samples": 14,
+      "datasets": {
+        "advbench":   {"positions": 2762,  "verbalized": 2762,  "refused": 2,  "refusal_pct": 0.1, "any_ref_pct": 16.8, "cjk": 0,  "early_ref_pct": 0.1, "late_ref_pct": null},
+        "harmbench":  {"positions": 3360,  "verbalized": 3360,  "refused": 1,  "refusal_pct": 0.0, "any_ref_pct": 12.9, "cjk": 0,  "early_ref_pct": 0.0, "late_ref_pct": null},
+        "truthfulqa": {"positions": 2353,  "verbalized": 2353,  "refused": 3,  "refusal_pct": 0.1, "any_ref_pct": 3.7,  "cjk": 0,  "early_ref_pct": 0.1, "late_ref_pct": null},
+        "wmdp":       {"positions": 20563, "verbalized": 20563, "refused": 23, "refusal_pct": 0.1, "any_ref_pct": 3.2,  "cjk": 20, "early_ref_pct": 0.2, "late_ref_pct": 0.1}
+      }
+    }
+  }
+}

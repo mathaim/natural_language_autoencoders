@@ -55,6 +55,10 @@ echo "======================="
 # --sglang-mem-fraction 0.80: 54 GB weights + KV cache for 16 concurrent
 # 200-token requests comfortably inside 64 GB; leaves headroom for the
 # triton JIT kernels.
+#
+# --dtype bfloat16: the 27B AV checkpoint is stored fp32 (101 GB, no
+# torch_dtype in config.json). SGLang's default `auto` maps fp32 → fp16,
+# which overflows in Gemma. Loading fp32 outright would need 108 GB.
 python experiments/adversarial_extraction/run_all.py \
     --models gemma27b-l41 \
     --datasets wmdp harmbench advbench truthfulqa \
@@ -67,7 +71,7 @@ python experiments/adversarial_extraction/run_all.py \
     --sglang-port 30002 \
     --sglang-tp 1 \
     --sglang-mem-fraction 0.80 \
-    --sglang-extra-args="--attention-backend triton" \
+    --sglang-extra-args="--attention-backend triton --dtype bfloat16" \
     --temperature 0.0 \
     --max-new-tokens 200 \
     --workers 16

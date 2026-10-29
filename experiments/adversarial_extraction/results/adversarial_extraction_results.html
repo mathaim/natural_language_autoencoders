@@ -1,0 +1,245 @@
+<title>Adversarial Prompt Readouts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a single reading column (~68ch) with full-width data blocks; the chart is the centerpiece. */
+  :root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --fg: #15181d;
+    --fg-2: #4b5260;
+    --fg-3: #7a8190;
+    --rule: #d9dde4;
+    --accent: #2f4a6e;
+    --accent-soft: #e6ecf4;
+    --series-1: #2a78d6;   /* Qwen */
+    --series-2: #eb6834;   /* Gemma */
+    --ok: #1f7a3f;
+    --ok-soft: #e3f3e8;
+    --display: "Newsreader", "Iowan Old Style", Georgia, serif;
+    --body: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181d; --surface: #1d2127; --fg: #eef0f3; --fg-2: #b7bdc8; --fg-3: #848b98;
+      --rule: #343a44; --accent: #a9bfdc; --accent-soft: #262e3a;
+      --series-1: #3987e5; --series-2: #d95926; --ok: #5fc07f; --ok-soft: #1f3327;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15181d; --surface: #1d2127; --fg: #eef0f3; --fg-2: #b7bdc8; --fg-3: #848b98;
+    --rule: #343a44; --accent: #a9bfdc; --accent-soft: #262e3a;
+    --series-1: #3987e5; --series-2: #d95926; --ok: #5fc07f; --ok-soft: #1f3327;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--body); font-size: 16px; line-height: 1.55;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 64px;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1, h2, h3 { font-family: var(--display); font-weight: 500; text-wrap: balance; margin: 0; line-height: 1.15; }
+  h1 { font-size: clamp(34px, 5vw, 48px); letter-spacing: -0.01em; }
+  h2 { font-size: 26px; margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 19px; margin-top: 28px; }
+  p { max-width: 68ch; margin: 12px 0; }
+  p.lede { font-size: 19px; color: var(--fg-2); max-width: 60ch; }
+  .eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); font-weight: 600; }
+  header { padding-top: 48px; display: grid; gap: 14px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-family: var(--mono); font-size: 13px; color: var(--fg-2); }
+  code, .mono { font-family: var(--mono); font-size: 0.9em; }
+  code { background: var(--accent-soft); padding: 1px 5px; border-radius: 3px; }
+  a { color: var(--accent); }
+  strong { font-weight: 600; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 32px; }
+  .tile { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 18px 20px; display: grid; gap: 4px; min-width: 0; }
+  .tile .n { font-family: var(--display); font-size: 38px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 13px; color: var(--fg-2); }
+
+  figure { margin: 24px 0 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 20px 20px 14px; min-width: 0; }
+  figure .title { font-weight: 600; font-size: 15px; }
+  figure .sub { font-size: 13px; color: var(--fg-2); margin-top: 2px; }
+  .legend { display: flex; gap: 18px; font-size: 13px; color: var(--fg-2); margin: 12px 0 4px; flex-wrap: wrap; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+  .legend .s1::before { background: var(--series-1); }
+  .legend .s2::before { background: var(--series-2); }
+  .chart-wrap { overflow-x: auto; position: relative; }
+  svg { display: block; width: 100%; height: auto; max-width: 100%; font-family: var(--body); }
+  .bar { transition: opacity .12s; }
+  .bar.dim { opacity: .35; }
+  .tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); font-size: 12px; padding: 6px 9px; border-radius: 4px; white-space: nowrap; transform: translate(-50%, calc(-100% - 10px)); display: none; font-variant-numeric: tabular-nums; }
+  figcaption { font-size: 13px; color: var(--fg-3); margin-top: 10px; }
+
+  .table-wrap { overflow-x: auto; margin-top: 16px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+  th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); font-weight: 600; background: var(--bg); }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.model { font-weight: 600; color: var(--fg-2); }
+  td.hi { font-weight: 600; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); }
+
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 18px; }
+  .step { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; min-width: 0; }
+  .step b { display: block; font-weight: 600; }
+  .step span { font-size: 14px; color: var(--fg-2); }
+
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 14px 0; font-size: 15px; }
+  dt { font-family: var(--mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+  dd { margin: 0; color: var(--fg-2); min-width: 0; }
+  ul { padding-left: 20px; max-width: 68ch; }
+  li { margin: 6px 0; }
+  @media (max-width: 520px) { dl { grid-template-columns: 1fr; gap: 2px 0; } dd { margin-bottom: 10px; } }
+  @media (prefers-reduced-motion: reduce) { .bar { transition: none; } }
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">Natural Language Autoencoders · adversarial extraction</div>
+  <h1>Adversarial Prompt Readouts</h1>
+  <p class="lede">What two Activation Verbalizers say about every token of 800 adversarial and factual prompts, read from the residual stream at two-thirds depth.</p>
+  <div class="meta">
+    <span>Qwen2.5-7B-Instruct · layer 20/28</span>
+    <span>Gemma-3-12B-it · layer 32/48</span>
+    <span>WMDP · HarmBench · AdvBench · TruthfulQA</span>
+    <span>200 prompts per dataset</span>
+    <span>29 Oct 2026</span>
+  </div>
+</header>
+
+<section class="tiles">
+  <div class="tile"><div class="n">58,177</div><div class="l">token positions verbalized, 100 % coverage, zero failed requests</div></div>
+  <div class="tile"><div class="n">≤ 0.3 %</div><div class="l">hard refusals by the verbalizer on any dataset, either model</div></div>
+  <div class="tile"><div class="n">12–20 %</div><div class="l">positions on jailbreak prompts described with harm language, vs ~3 % on knowledge prompts</div></div>
+</section>
+
+<h2>Finding</h2>
+<p>The verbalizers almost never decline to describe an activation. But on the two jailbreak-style datasets, AdvBench and HarmBench, between 12 % and 20 % of positions are described with words like <em>harmful</em>, <em>dangerous</em> or <em>illegal</em>. On WMDP, which is hazardous knowledge framed as a benign multiple-choice question, and on TruthfulQA, that rate is around 3 %.</p>
+<p>The two models agree within a few points on every dataset even though they share no weights, tokenizer or training data. The residual stream at this depth carries a readable "this request is harmful" signal for harmful <em>intent</em>, and it is largely absent for hazardous <em>content</em> asked about in a neutral frame.</p>
+
+<figure>
+  <div class="title">Positions described with harm language</div>
+  <div class="sub">Share of token positions whose verbalization contains a hard refusal or soft harm wording, per dataset</div>
+  <div class="legend"><span class="s1">Qwen2.5-7B (L20)</span><span class="s2">Gemma-3-12B (L32)</span></div>
+  <div class="chart-wrap" id="chart"><div class="tip" id="tip"></div></div>
+  <figcaption>Hover a bar for the count behind it. Verbalization sampled greedily (temperature 0, ≤ 200 tokens). "Harm language" = the inspector's any-ref metric: hard-refusal pattern or any of ten soft keywords.</figcaption>
+</figure>
+
+<h2>Full statistics</h2>
+<p>Output of <code>inspect_verbalizations.py</code> on each finished run. <strong>Refused</strong> is the hard-refusal pattern; <strong>any-ref</strong> adds the soft keywords; <strong>CJK</strong> counts verbalizations containing CJK characters, the repo's smoke test for a broken injection path.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Dataset</th><th>Model</th><th>Positions</th><th>Refused</th><th>Refusal %</th><th>Any-ref %</th><th>CJK</th></tr></thead>
+  <tbody>
+    <tr><td>AdvBench</td><td class="model">Qwen 7B</td><td>2,554</td><td>1</td><td>0.0</td><td class="hi">19.5</td><td>7</td></tr>
+    <tr><td></td><td class="model">Gemma 12B</td><td>2,762</td><td>2</td><td>0.1</td><td class="hi">16.8</td><td>0</td></tr>
+    <tr><td>HarmBench</td><td class="model">Qwen 7B</td><td>3,153</td><td>0</td><td>0.0</td><td class="hi">12.1</td><td>4</td></tr>
+    <tr><td></td><td class="model">Gemma 12B</td><td>3,360</td><td>1</td><td>0.0</td><td class="hi">12.9</td><td>0</td></tr>
+    <tr><td>WMDP</td><td class="model">Qwen 7B</td><td>21,275</td><td>16</td><td>0.1</td><td>3.0</td><td>161</td></tr>
+    <tr><td></td><td class="model">Gemma 12B</td><td>20,563</td><td>23</td><td>0.1</td><td>3.2</td><td>20</td></tr>
+    <tr><td>TruthfulQA</td><td class="model">Qwen 7B</td><td>2,157</td><td>6</td><td>0.3</td><td>2.5</td><td>5</td></tr>
+    <tr><td></td><td class="model">Gemma 12B</td><td>2,353</td><td>3</td><td>0.1</td><td>3.7</td><td>0</td></tr>
+  </tbody>
+</table>
+</div>
+<p style="margin-top:14px">WMDP has far more positions because its prompts carry four answer choices; the other three datasets are single questions or instructions.</p>
+
+<h3>Validity checks</h3>
+<ul>
+  <li><span class="pill">pass</span> Coverage: 29,139 / 29,139 (Qwen) and 29,038 / 29,038 (Gemma) positions verbalized; every request succeeded.</li>
+  <li><span class="pill">pass</span> Injection smoke test: CJK appears in 0.61 % (Qwen) and 0.07 % (Gemma) of outputs. A broken injection path makes nearly every output CJK; a fraction of a percent is the documented noise floor for near-noise activations, and 104 of Qwen's 177 are at early positions (&lt; 50 tokens of context).</li>
+  <li><span class="pill">pass</span> Sidecar contract: marker token, neighbour IDs, <code>injection_scale</code> and <code>d_model</code> loaded from each checkpoint's <code>nla_meta.yaml</code> and asserted against the live tokenizer (Qwen: <code>㈎</code>/149705, scale 150; Gemma: <code>㈜</code>/246566, scale 80000).</li>
+</ul>
+
+<h2>What was run</h2>
+<div class="steps">
+  <div class="step"><b>Extract</b><span>Base model forward pass with <code>output_hidden_states</code>; the layer-K residual captured at every token position; greedy 64-token decode saved as the base model's own answer.</span></div>
+  <div class="step"><b>Serve the AV</b><span>SGLang with <code>--disable-radix-cache</code>; each activation injected as a token embedding at the marker position of the fixed verbalizer prompt. Gemma needed the <code>triton</code> attention backend on A100.</span></div>
+  <div class="step"><b>Verbalize</b><span>16 concurrent requests, ~2.6 positions/s, incremental writes with resume. About 3 h per model on one A100.</span></div>
+</div>
+
+<h3>What is saved, per model</h3>
+<p>Under <code>/scratch/euh7ys/adversarial_runs/{qwen7b-l20,gemma12b-l32}/</code> on the UVA cluster. Prompt text and verbalizations stay there; only these aggregates leave it.</p>
+<dl>
+  <dt>samples.jsonl</dt><dd>One row per prompt: dataset, prompt text, token IDs, the base model's 64-token greedy reply with a refusal flag, and dataset metadata (WMDP answer key, HarmBench category).</dd>
+  <dt>verbalizations.jsonl</dt><dd>One row per token position: sample ID, position, token ID and string, the AV's description of that activation, and the hard-refusal flag.</dd>
+  <dt>activations.npy</dt><dd><code>[N positions, d_model]</code> float32, raw and unnormalized, indexed by <code>vec_start + position</code> from samples.jsonl. Ready for re-verbalization, reconstruction through the AR, or probing.</dd>
+</dl>
+
+<h2>Caveats</h2>
+<ul>
+  <li><strong>Any-ref is a keyword heuristic.</strong> It counts descriptions that mention harm; it does not judge whether the description is accurate or whether the model would comply. A manual read of a sample is the next check.</li>
+  <li><strong>200 prompts per dataset, one layer per model.</strong> Enough to see a 4–6× gap between dataset groups replicated across two families; not a per-category breakdown.</li>
+  <li><strong>Verbalizations are greedy.</strong> Temperature 0 gives one description per position; the AV's distribution over descriptions is not sampled.</li>
+  <li><strong>Base-model refusals are recorded but not analysed here.</strong> Whether the AV's harm language at a position predicts the base model refusing is an open comparison the saved data supports.</li>
+</ul>
+
+<h2>Why it matters for the unlearning result</h2>
+<p>An earlier sweep showed a forget-style NLA intervention trained on WMDP collapsing MMLU alongside WMDP. These readouts say the representation of WMDP prompts at this layer looks like ordinary question-answering, not like harm: the model does not flag hazardous knowledge the way it flags a jailbreak. An intervention that targets "what the AV says here" on WMDP is therefore steering general knowledge circuitry rather than a harm-specific feature, which is consistent with the MMLU collapse. The saved activations and per-position verbalizations are the inputs for testing that directly.</p>
+
+<h2>Next</h2>
+<ul>
+  <li>Position profile: where in a prompt the harm language first appears, and whether it persists to the final token the model answers from.</li>
+  <li>Cross-reference with <code>model_output_is_refusal</code>: does AV harm language at the last position predict the base model refusing?</li>
+  <li>WMDP by subject (bio / chem / cyber) and by whether the base model answered correctly.</li>
+</ul>
+</main>
+
+<script>
+(function () {
+  var data = [
+    { ds: "AdvBench",   note: "jailbreak instructions", q: { pct: 19.5, n: 2554 },  g: { pct: 16.8, n: 2762 } },
+    { ds: "HarmBench",  note: "harmful behaviors",      q: { pct: 12.1, n: 3153 },  g: { pct: 12.9, n: 3360 } },
+    { ds: "WMDP",       note: "hazardous-knowledge MCQ",q: { pct: 3.0,  n: 21275 }, g: { pct: 3.2,  n: 20563 } },
+    { ds: "TruthfulQA", note: "factual questions",      q: { pct: 2.5,  n: 2157 },  g: { pct: 3.7,  n: 2353 } }
+  ];
+  var W = 760, labelW = 128, right = 56, top = 10, rowH = 58, barH = 17, gap = 2, maxPct = 25;
+  var plotW = W - labelW - right, px = plotW / maxPct;
+  var H = top + rowH * data.length + 34;
+  var svgNS = "http://www.w3.org/2000/svg";
+  function el(n, a, t) { var e = document.createElementNS(svgNS, n); for (var k in a) e.setAttribute(k, a[k]); if (t != null) e.textContent = t; return e; }
+  var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Grouped bar chart of harm-language rate by dataset and model" });
+  var css = getComputedStyle(document.documentElement);
+  // gridlines + x axis
+  for (var t = 0; t <= maxPct; t += 5) {
+    var x = labelW + t * px;
+    svg.appendChild(el("line", { x1: x, y1: top, x2: x, y2: top + rowH * data.length, stroke: "var(--rule)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: x, y: H - 10, "text-anchor": "middle", "font-size": 12, fill: "var(--fg-3)" }, t + "%"));
+  }
+  var tip = document.getElementById("tip"), wrap = document.getElementById("chart");
+  data.forEach(function (d, i) {
+    var y0 = top + i * rowH + (rowH - (2 * barH + gap)) / 2;
+    svg.appendChild(el("text", { x: labelW - 14, y: y0 + barH, "text-anchor": "end", "font-size": 14, "font-weight": 600, fill: "var(--fg)" }, d.ds));
+    svg.appendChild(el("text", { x: labelW - 14, y: y0 + barH + 16, "text-anchor": "end", "font-size": 11, fill: "var(--fg-3)" }, d.note));
+    [["q", "var(--series-1)", "Qwen2.5-7B"], ["g", "var(--series-2)", "Gemma-3-12B"]].forEach(function (s, j) {
+      var v = d[s[0]], y = y0 + j * (barH + gap), w = Math.max(v.pct * px, 2);
+      var r = el("rect", { x: labelW, y: y, width: w, height: barH, rx: 3, fill: s[1], "class": "bar" });
+      r.setAttribute("tabindex", "0");
+      var label = el("text", { x: labelW + w + 6, y: y + barH - 4, "font-size": 12, fill: "var(--fg-2)" }, v.pct.toFixed(1) + "%");
+      var txt = s[2] + " · " + d.ds + ": " + v.pct.toFixed(1) + "% of " + v.n.toLocaleString() + " positions (" + Math.round(v.pct * v.n / 100).toLocaleString() + ")";
+      function show(ev) {
+        tip.textContent = txt; tip.style.display = "block";
+        var b = r.getBoundingClientRect(), c = wrap.getBoundingClientRect();
+        tip.style.left = (b.left - c.left + b.width / 2) + "px";
+        tip.style.top = (b.top - c.top) + "px";
+        svg.querySelectorAll(".bar").forEach(function (o) { if (o !== r) o.classList.add("dim"); });
+      }
+      function hide() { tip.style.display = "none"; svg.querySelectorAll(".bar").forEach(function (o) { o.classList.remove("dim"); }); }
+      r.addEventListener("mouseenter", show); r.addEventListener("mouseleave", hide);
+      r.addEventListener("focus", show); r.addEventListener("blur", hide);
+      svg.appendChild(r); svg.appendChild(label);
+    });
+  });
+  // baseline
+  svg.appendChild(el("line", { x1: labelW, y1: top, x2: labelW, y2: top + rowH * data.length, stroke: "var(--fg-3)", "stroke-width": 1 }));
+  wrap.appendChild(svg);
+})();
+</script>
